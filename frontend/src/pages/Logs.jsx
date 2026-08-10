@@ -42,7 +42,7 @@ export default function Logs() {
                 <td>{c.service}</td><td>{c.level}</td>
                 <td className="mono">{c.template.slice(0, 130)}</td>
                 <td><b>{c.count}</b></td>
-                <td>{c.anomalous ? <span className="badge sev2">anomalous</span> : <span className="badge neutral">baseline</span>}</td>
+                <td>{c.matched_pattern ? <span className="badge sev1" title={c.pattern_severity}>⚑ {c.matched_pattern}</span> : c.anomalous ? <span className="badge sev2">anomalous</span> : <span className="badge neutral">baseline</span>}</td>
               </tr>
             ))}
           </tbody>

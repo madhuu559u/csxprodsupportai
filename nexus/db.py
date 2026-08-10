@@ -239,6 +239,36 @@ CREATE TABLE IF NOT EXISTS notifications (
   severity TEXT, title TEXT, body TEXT,
   read BOOLEAN DEFAULT false
 );
+
+-- ============ authentication ============
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_email TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- ============ application onboarding detail ============
+CREATE TABLE IF NOT EXISTS application_patterns (
+  id SERIAL PRIMARY KEY,
+  application_id INT REFERENCES applications(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  pattern TEXT NOT NULL,                 -- regex / substring matched against log templates
+  severity TEXT DEFAULT 'error',         -- info | warn | error | critical
+  description TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS application_sops (
+  id SERIAL PRIMARY KEY,
+  application_id INT REFERENCES applications(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  trigger_hint TEXT,                     -- when to use this SOP
+  content TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS profile JSONB DEFAULT '{}'::jsonb;
 """
 
 
@@ -497,6 +527,104 @@ def get_user(email):
         return dict(r) if r else None
 
 
+# ---------------------------------------------------------------- authentication
+def _hash_password(password: str, salt: str | None = None) -> str:
+    import hashlib
+    import secrets
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000).hex()
+    return f"{salt}${digest}"
+
+
+def set_password(email: str, password: str):
+    with Cur() as c:
+        c.execute("UPDATE users SET password_hash=%s WHERE email=%s",
+                  (_hash_password(password), email))
+
+
+def verify_login(email: str, password: str) -> bool:
+    with Cur() as c:
+        c.execute("SELECT password_hash FROM users WHERE email=%s AND active", (email,))
+        row = c.fetchone()
+    if not row or not row["password_hash"]:
+        return False
+    salt = row["password_hash"].split("$")[0]
+    return _hash_password(password, salt) == row["password_hash"]
+
+
+def create_session(email: str, hours: int = 12) -> str:
+    import secrets
+    token = secrets.token_urlsafe(32)
+    with Cur() as c:
+        c.execute("INSERT INTO sessions(token,user_email,expires_at) "
+                  "VALUES(%s,%s,now() + (%s || ' hours')::interval)", (token, email, hours))
+    return token
+
+
+def session_user(token: str):
+    with Cur() as c:
+        c.execute("SELECT user_email FROM sessions WHERE token=%s AND expires_at > now()", (token,))
+        row = c.fetchone()
+    return get_user(row["user_email"]) if row else None
+
+
+def delete_session(token: str):
+    with Cur() as c:
+        c.execute("DELETE FROM sessions WHERE token=%s", (token,))
+
+
+# ---------------------------------------------------------------- onboarding detail
+def add_pattern(application_id, name, pattern, severity, description):
+    with Cur() as c:
+        c.execute("INSERT INTO application_patterns(application_id,name,pattern,severity,description) "
+                  "VALUES(%s,%s,%s,%s,%s) RETURNING id",
+                  (application_id, name, pattern, severity, description))
+        return c.fetchone()["id"]
+
+
+def list_patterns(application_id=None):
+    """Patterns joined to their services so the log engine can act on them."""
+    with Cur() as c:
+        q = ("SELECT p.id,p.application_id,p.name,p.pattern,p.severity,p.description,"
+             "a.name AS application, "
+             "COALESCE(json_agg(s.service_name) FILTER (WHERE s.service_name IS NOT NULL),'[]') AS services "
+             "FROM application_patterns p JOIN applications a ON a.id=p.application_id "
+             "LEFT JOIN application_services s ON s.application_id=a.id ")
+        if application_id:
+            c.execute(q + "WHERE p.application_id=%s GROUP BY p.id,a.name", (application_id,))
+        else:
+            c.execute(q + "GROUP BY p.id,a.name")
+        return [dict(r) for r in c.fetchall()]
+
+
+def add_sop(application_id, title, trigger_hint, content):
+    with Cur() as c:
+        c.execute("INSERT INTO application_sops(application_id,title,trigger_hint,content) "
+                  "VALUES(%s,%s,%s,%s) RETURNING id",
+                  (application_id, title, trigger_hint, content))
+        return c.fetchone()["id"]
+
+
+def list_sops(application_id=None, service=None):
+    with Cur() as c:
+        q = ("SELECT o.id,o.application_id,o.title,o.trigger_hint,o.content,a.name AS application "
+             "FROM application_sops o JOIN applications a ON a.id=o.application_id ")
+        if application_id:
+            c.execute(q + "WHERE o.application_id=%s ORDER BY o.id", (application_id,))
+        elif service:
+            c.execute(q + "JOIN application_services s ON s.application_id=a.id "
+                          "WHERE s.service_name=%s ORDER BY o.id", (service,))
+        else:
+            c.execute(q + "ORDER BY o.id")
+        return [dict(r) for r in c.fetchall()]
+
+
+def set_application_profile(application_id, profile: dict):
+    with Cur() as c:
+        c.execute("UPDATE applications SET profile=%s WHERE id=%s",
+                  (json.dumps(profile), application_id))
+
+
 # ---------------------------------------------------------------- applications
 def upsert_application(tenant_slug, name, owner_team, oncall_email, criticality,
                        description, services):
@@ -518,8 +646,10 @@ def upsert_application(tenant_slug, name, owner_team, oncall_email, criticality,
 def list_applications(tenant_slug=None):
     with Cur() as c:
         q = ("SELECT a.id,a.name,a.owner_team,a.oncall_email,a.criticality,a.tier,a.description,"
-             "t.slug AS tenant,t.name AS tenant_name,"
-             "COALESCE(json_agg(s.service_name) FILTER (WHERE s.service_name IS NOT NULL),'[]') AS services "
+             "a.profile,t.slug AS tenant,t.name AS tenant_name,"
+             "COALESCE(json_agg(DISTINCT s.service_name) FILTER (WHERE s.service_name IS NOT NULL),'[]') AS services,"
+             "(SELECT count(*) FROM application_patterns p WHERE p.application_id=a.id) AS pattern_count,"
+             "(SELECT count(*) FROM application_sops o WHERE o.application_id=a.id) AS sop_count "
              "FROM applications a JOIN tenants t ON t.id=a.tenant_id "
              "LEFT JOIN application_services s ON s.application_id=a.id ")
         if tenant_slug:

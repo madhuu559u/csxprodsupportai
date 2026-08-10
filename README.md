@@ -1,22 +1,22 @@
-# NEXUS OpsAI — AI-Native Production Support Platform (v2.1)
+# NEXUS OpsAI — AI-Native Production Support Platform (v2.2)
 
 A real, deployable implementation of the `ai_production_support_platform_blueprint.html`
 vision: one operations console that **detects, explains, predicts, resolves and learns** —
-React (Salesforce Lightning-style) console, PostgreSQL persistence (26-table schema),
-multi-tenant with RBAC, multi-provider AI, client administration, and Docker packaging.
+React (Salesforce Lightning-style) console, PostgreSQL persistence (29-table schema),
+multi-tenant with login + RBAC, a full application-onboarding wizard, multi-provider AI, client administration, and Docker packaging.
 
 **Multi-tenant out of the box:** ships with two demo customers — Acme Retail (6 apps) and
 Globex Financial (4 apps) — and six personas across admin / developer / tester roles.
-Switch persona and customer from the header; permissions are enforced server-side and
-verified by the included [UAT report](UAT_REPORT.md) (18/18 scenarios passed).
+Sign in from the login page (demo password `demo123`, one-click persona cards); permissions are enforced server-side and
+verified by the included [UAT report](UAT_REPORT.md) (25/25 scenarios passed).
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
 | Console | React 18 + Vite, Lightning-style design system (light theme, validated chart palette) |
-| API | FastAPI (Python 3.12) with header-based identity + role permission enforcement |
-| Storage | PostgreSQL, 26 tables: tenants, users, roles, applications, application_services, logs, log_sources, metric_samples, metrics_catalog, alerts, predictions_history, incidents, incident_events, incident_comments, runbooks_catalog, runbook_audit, rca_reports, knowledge_articles, ai_providers, ai_usage, db_connections, audit_log, notifications, copilot_history, settings, maintenance_windows |
+| API | FastAPI (Python 3.12) with session login (Bearer tokens), header identity for automation, and role permission enforcement |
+| Storage | PostgreSQL, 29 tables: sessions, application_patterns, application_sops, tenants, users, roles, applications, application_services, logs, log_sources, metric_samples, metrics_catalog, alerts, predictions_history, incidents, incident_events, incident_comments, runbooks_catalog, runbook_audit, rca_reports, knowledge_articles, ai_providers, ai_usage, db_connections, audit_log, notifications, copilot_history, settings, maintenance_windows |
 | AI | Multi-provider hub: **OpenAI**, **Anthropic Claude**, **Azure OpenAI** — configured in Administration, automatic failover, per-call usage metering, deterministic offline engine as final fallback |
 | Packaging | Docker multi-stage build + docker-compose (app + postgres) |
 
@@ -41,6 +41,19 @@ python -m uvicorn nexus.main:app --port 8611
 ```
 
 (Frontend dev loop: `cd frontend && npm run dev` — Vite proxies `/api` to :8611.)
+
+
+## Application onboarding (collect everything, act on it)
+
+**Administration → Applications → Onboard application** walks a six-step wizard that captures
+the complete operating picture of an app: what it does, business impact, SLA, environment,
+owner/on-call, telemetry service names, log locations, a bootstrap log sample (paste or URL),
+**watch patterns** (regexes the platform scans every ingested log line for — matches are
+flagged and feed incidents), backing **databases** (registered with pool min/max for
+monitoring), **SOPs** (standard operating procedures that attach to matching incidents and
+ground the copilot), and upstream/downstream dependencies. On launch everything is created
+in one shot and the platform immediately acts on it — verified in UAT with a "Loyalty
+Rewards" app whose `POINTS_LOCK_TIMEOUT` pattern flagged its clusters seconds after onboarding.
 
 ## Client administration (the "take it to a client" workflow)
 

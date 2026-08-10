@@ -23,7 +23,7 @@ export default function Incidents({ onApprove }) {
   }
   const runbooks = async (id) => {
     const inc = await api(`/api/incidents/${id}`)
-    setPanel(id, { runbooks: inc.recommended_runbooks || [] })
+    setPanel(id, { runbooks: inc.recommended_runbooks || [], sops: inc.sops || [] })
   }
   const exec = async (rbId, tier, incId) => {
     if (tier === 2) { onApprove(rbId, () => { load(); runbooks(incId) }); return }
@@ -86,6 +86,16 @@ export default function Incidents({ onApprove }) {
                     <span className="mono" style={{ color: 'var(--muted)' }}>{r.id}</span>{' '}
                     <button className="btn sm" onClick={() => exec(r.id, r.tier, i.id)}>Execute</button>
                   </div>
+                ))}
+              </div>
+            )}
+            {p.sops && p.sops.length > 0 && (
+              <div style={{ marginTop: '.4rem' }}>
+                {p.sops.map((s) => (
+                  <details key={s.id} className="evd" style={{ borderColor: 'var(--s1)' }}>
+                    <summary>📘 {s.title} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>— when: {s.trigger_hint}</span></summary>
+                    <pre className="mono" style={{ whiteSpace: 'pre-wrap', fontSize: '.7rem', margin: '.3rem 0 0' }}>{s.content}</pre>
+                  </details>
                 ))}
               </div>
             )}

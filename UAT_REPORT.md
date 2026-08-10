@@ -1,4 +1,4 @@
-# UAT Report — NEXUS OpsAI v2.1
+# UAT Report — NEXUS OpsAI v2.2
 
 Two simulated customer organizations exercised the product end-to-end through the API and
 console, each with three roles (admin / developer / tester). All AI results were produced
@@ -14,7 +14,7 @@ live by the configured OpenAI provider; RBAC denials verified server-side.
 **Personas:** Priya (Acme admin), Marco (Acme developer), Lena (Acme tester),
 Owen (Globex admin), Sara (Globex developer), Tomas (Globex tester).
 
-## Results — 18/18 scenarios passed
+## Results — 25/25 scenarios passed (rounds 1-3: 18, round 4: 7)
 
 | # | Scenario | Persona | Result |
 |---|----------|---------|--------|
@@ -64,5 +64,22 @@ tenants, users.
 - Tester roles see "view only" states instead of buttons that would fail.
 - First-run works with zero configuration (bootstrap admin + offline AI), and every
   configuration action is available in Administration without code or restarts.
+
+## Round 4 — Login & application onboarding (v2.2)
+
+| # | Scenario | Result |
+|---|----------|--------|
+| 19 | Password login issues session token; wrong password → 401; logout invalidates | ✅ |
+| 20 | Bearer token drives identity + RBAC end-to-end (replaces header for the console) | ✅ |
+| 21 | Six-step onboarding wizard: Loyalty Rewards app onboarded with 2 services, log locations, 4-line log sample, 1 watch pattern, 1 database (pool 2-15), 1 SOP, dependencies | ✅ |
+| 22 | **Platform acts on config**: `POINTS_LOCK_TIMEOUT` watch pattern flagged the app's clusters seconds after onboarding; seeded patterns flag checkout (x160) and trading (x25) clusters | ✅ |
+| 23 | Application detail view returns full collected profile (impact, SLA, log locations, deps, patterns, SOPs) | ✅ |
+| 24 | Tester denied onboarding (403) | ✅ |
+| 25 | SOPs surface on matching incidents and in copilot context | ✅ |
+
+Round-4 fix: order-ID style tokens (`GX5193310`) now masked in template mining, collapsing
+25 single-line clusters into one pattern x25.
+
+Schema is now **29 tables** (adds sessions, application_patterns, application_sops).
 
 **Verdict: approved for demo and pilot deployments.**

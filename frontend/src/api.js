@@ -1,11 +1,12 @@
-export const currentUserEmail = () => localStorage.getItem('nexus_user') || ''
-export const setCurrentUser = (email) => localStorage.setItem('nexus_user', email)
+export const getToken = () => localStorage.getItem('nexus_token') || ''
+export const setToken = (t) => localStorage.setItem('nexus_token', t)
+export const clearAuth = () => { localStorage.removeItem('nexus_token'); localStorage.removeItem('nexus_tenant') }
 export const currentTenant = () => localStorage.getItem('nexus_tenant') || ''
 export const setCurrentTenant = (slug) => localStorage.setItem('nexus_tenant', slug)
 
 const authHeaders = () => {
-  const u = currentUserEmail()
-  return u ? { 'X-User-Email': u } : {}
+  const t = getToken()
+  return t ? { Authorization: `Bearer ${t}` } : {}
 }
 export const withTenant = (path) => {
   const t = currentTenant()

@@ -80,6 +80,12 @@ def _seed():
         ("qa.tomas@globex.com", "Tomas Novak", "globex", "tester"),
     ]:
         db.upsert_user(email, name, tenant, role)
+    # demo credentials: password 'demo123' for every persona (set once)
+    for u in db.list_users():
+        with db.Cur() as c:
+            c.execute("SELECT password_hash FROM users WHERE email=%s", (u["email"],))
+            if not c.fetchone()["password_hash"]:
+                db.set_password(u["email"], "demo123")
 
     # ---- application catalog ----
     for tenant, name, owner, oncall, crit, desc, services in APPLICATIONS:
@@ -100,6 +106,30 @@ def _seed():
                          "paused or feed reconnected to primary. Codified as runbook "
                          "trading-feed-reconnect.", "postmortem")
 
+    # ---- seed watch patterns + SOPs for the demo apps ----
+    if not db.list_patterns():
+        apps = {a["name"]: a["id"] for a in db.list_applications()}
+        if "Checkout" in apps:
+            db.add_pattern(apps["Checkout"], "DB pool timeout", "timeout acquiring connection",
+                           "critical", "HikariCP pool starvation — known failure mode after "
+                           "write-heavy releases")
+            db.add_sop(apps["Checkout"], "SOP: Checkout DB pool exhaustion",
+                       "SQLException 'timeout acquiring connection' storm / pool at 100%",
+                       "1. Confirm db_pool_utilization > 92% on the Checkout dashboard.\n"
+                       "2. Execute runbook checkout-db-pool-pressure (tier 2 — needs approval).\n"
+                       "3. Verify pool utilization drops >= 25% within 5 minutes.\n"
+                       "4. If not recovered in 10 minutes, escalate to change management for "
+                       "release rollback (tier 4).")
+        if "Trading Gateway" in apps:
+            db.add_pattern(apps["Trading Gateway"], "Stale price rejection", "stale price",
+                           "error", "Orders rejected on stale quotes — market-data feed latency")
+            db.add_sop(apps["Trading Gateway"], "SOP: Market-data feed degradation",
+                       "MarketDataTimeout errors / stale-price order rejections",
+                       "1. Check feed session heartbeats per venue.\n"
+                       "2. Execute runbook trading-feed-reconnect (tier 2 — needs approval).\n"
+                       "3. Verify p99 latency back under 200ms within 5 minutes.\n"
+                       "4. Notify the trading desk if order flow is paused for more than 5 minutes.")
+
     # ---- demo telemetry -> postgres ----
     if db.logs_count() == 0:
         sid = db.create_source("Demo scenario (synthetic enterprise telemetry)", "demo")
@@ -107,21 +137,28 @@ def _seed():
     db.store_metric_samples(WORLD.metrics)
 
 
-# ---------------------------------------------------------------- RBAC
-def current_user(x_user_email: str | None = Header(default=None)):
-    """Resolve the acting user from the X-User-Email header.
+# ---------------------------------------------------------------- RBAC / auth
+def current_user(authorization: str | None = Header(default=None),
+                 x_user_email: str | None = Header(default=None)):
+    """Resolve the acting user.
 
-    No header -> platform bootstrap admin (first-run experience); unknown header -> 401.
+    Order: Bearer session token (console login) -> X-User-Email header (API/automation)
+    -> platform bootstrap admin (first-run/scripting). Unknown identity -> 401.
     """
-    if not x_user_email:
-        return {"email": "platform@nexus.local", "display_name": "Platform Bootstrap",
-                "tenant": None, "tenant_name": "Platform", "role": "admin",
-                "permissions": {"admin_config": True, "execute_runbooks": True,
-                                "approve_tier2": True, "ingest": True, "ai_actions": True}}
-    u = db.get_user(x_user_email)
-    if not u:
-        raise HTTPException(401, f"Unknown or inactive user: {x_user_email}")
-    return u
+    if authorization and authorization.lower().startswith("bearer "):
+        u = db.session_user(authorization.split(" ", 1)[1])
+        if not u:
+            raise HTTPException(401, "Session expired or invalid — sign in again.")
+        return u
+    if x_user_email:
+        u = db.get_user(x_user_email)
+        if not u:
+            raise HTTPException(401, f"Unknown or inactive user: {x_user_email}")
+        return u
+    return {"email": "platform@nexus.local", "display_name": "Platform Bootstrap",
+            "tenant": None, "tenant_name": "Platform", "role": "admin",
+            "permissions": {"admin_config": True, "execute_runbooks": True,
+                            "approve_tier2": True, "ingest": True, "ai_actions": True}}
 
 
 def require(user, perm):
@@ -156,7 +193,30 @@ def _all_logs():
 
 def _clusters(logs=None):
     logs = logs if logs is not None else _all_logs()
-    return log_engine.cluster_logs(logs, FILE_CONFIG["log_analysis"]["error_cluster_min_count"])
+    clusters = log_engine.cluster_logs(logs, FILE_CONFIG["log_analysis"]["error_cluster_min_count"])
+    # Overlay client-configured watch patterns (from application onboarding):
+    # a matching cluster is flagged and labeled - configuration acts on live telemetry.
+    import re as _re
+    try:
+        patterns = db.list_patterns()
+    except Exception:
+        patterns = []
+    for c in clusters:
+        for p in patterns:
+            if p["services"] and c["service"] not in p["services"]:
+                continue
+            hit = False
+            try:
+                hit = bool(_re.search(p["pattern"], c["template"], _re.I))
+            except _re.error:
+                hit = p["pattern"].lower() in c["template"].lower()
+            if hit:
+                c["matched_pattern"] = p["name"]
+                c["pattern_severity"] = p["severity"]
+                if p["severity"] in ("error", "critical"):
+                    c["anomalous"] = True
+                break
+    return clusters
 
 
 _NOTIFIED: set[str] = set()
@@ -191,6 +251,39 @@ def _incidents(tenant: str | None = None):
 
 def _find_incident(inc_id: str):
     return next((i for i in _incidents() if i["id"] == inc_id), None)
+
+
+# ---------------------------------------------------------------- authentication
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginBody):
+    if not db.verify_login(body.email.strip().lower(), body.password):
+        db.log_audit(body.email, "login_failed", "auth", {})
+        raise HTTPException(401, "Invalid email or password.")
+    token = db.create_session(body.email.strip().lower())
+    user = db.get_user(body.email.strip().lower())
+    db.log_audit(user["email"], "login", "auth", {"role": user["role"]})
+    return {"token": token, "user": user}
+
+
+@app.post("/api/auth/logout")
+def logout(authorization: str | None = Header(default=None)):
+    if authorization and authorization.lower().startswith("bearer "):
+        db.delete_session(authorization.split(" ", 1)[1])
+    return {"ok": True}
+
+
+@app.get("/api/auth/demo-credentials")
+def demo_credentials():
+    """Demo persona directory for the login screen (password: demo123)."""
+    return {"password_hint": "demo123",
+            "personas": [{"email": u["email"], "name": u["display_name"],
+                          "role": u["role"], "tenant": u["tenant_name"]}
+                         for u in db.list_users()]}
 
 
 # ---------------------------------------------------------------- identity
@@ -295,6 +388,8 @@ def incident_detail(inc_id: str):
     inc["recommended_runbooks"] = [
         {"id": r["id"], "name": r["name"], "tier": r["tier"], "matched_signals": r["matched_signals"]}
         for r in RUNBOOKS.recommend(inc)]
+    inc["sops"] = [{"id": s["id"], "title": s["title"], "trigger_hint": s["trigger_hint"],
+                    "content": s["content"]} for s in db.list_sops(service=inc["service"])]
     return inc
 
 
@@ -381,6 +476,9 @@ def copilot(body: CopilotBody):
         "changes": WORLD.changes,
         "recommended_runbooks": [{"id": r["id"], "name": r["name"], "tier": r["tier"]}
                                  for i in incs for r in RUNBOOKS.recommend(i)],
+        "sops": [{"application": s["application"], "title": s["title"],
+                  "when_to_use": s["trigger_hint"], "steps": s["content"]}
+                 for i in incs for s in db.list_sops(service=i["service"])],
         "service_owners": SERVICE_META,
     }
     result = ai_gateway.copilot_answer(body.question, context)
@@ -589,6 +687,123 @@ def add_application(body: ApplicationBody, user=Depends(current_user)):
     db.log_audit(user["email"], "application_registered", body.name,
                  {"tenant": body.tenant, "services": body.services})
     return {"ok": True, "id": app_id, "applications": db.list_applications()}
+
+
+# ---- full application onboarding (collect everything, act on it) ----
+class PatternIn(BaseModel):
+    name: str
+    pattern: str
+    severity: str = "error"
+    description: str = ""
+
+
+class SopIn(BaseModel):
+    title: str
+    trigger_hint: str = ""
+    content: str = ""
+
+
+class DatabaseIn(BaseModel):
+    name: str
+    engine: str = "postgresql"
+    host: str = "localhost"
+    port: int = 5432
+    dbname: str = ""
+    username: str = ""
+    password: str = ""
+    pool_min: int = 2
+    pool_max: int = 10
+
+
+class OnboardBody(BaseModel):
+    tenant: str
+    name: str
+    description: str = ""
+    owner_team: str = ""
+    oncall_email: str = ""
+    criticality: str = "medium"
+    business_impact: str = ""
+    sla_target: str = ""
+    environment: str = "production"
+    services: list[str] = []
+    dependencies_upstream: list[str] = []
+    dependencies_downstream: list[str] = []
+    log_locations: list[str] = []
+    log_sample_text: str | None = None
+    log_sample_url: str | None = None
+    patterns: list[PatternIn] = []
+    databases: list[DatabaseIn] = []
+    sops: list[SopIn] = []
+
+
+@app.post("/api/admin/applications/onboard")
+def onboard_application(body: OnboardBody, user=Depends(current_user)):
+    require(user, "admin_config")
+    if not body.services:
+        body.services = [body.name.lower().replace(" ", "-")]
+
+    app_id = db.upsert_application(body.tenant, body.name, body.owner_team, body.oncall_email,
+                                   body.criticality, body.description, body.services)
+    db.set_application_profile(app_id, {
+        "business_impact": body.business_impact, "sla_target": body.sla_target,
+        "environment": body.environment, "log_locations": body.log_locations,
+        "dependencies": {"upstream": body.dependencies_upstream,
+                         "downstream": body.dependencies_downstream},
+        "onboarded_by": user["email"],
+    })
+    for p in body.patterns:
+        db.add_pattern(app_id, p.name, p.pattern, p.severity, p.description)
+    for s in body.sops:
+        db.add_sop(app_id, s.title, s.trigger_hint, s.content)
+    conn_ids = []
+    for d in body.databases:
+        conn_ids.append(db.create_connection({**d.model_dump(), "monitor_pool": True}))
+
+    ingested = 0
+    if body.log_sample_url or (body.log_sample_text or "").strip():
+        text = body.log_sample_text or ""
+        if body.log_sample_url:
+            try:
+                req = urllib.request.Request(body.log_sample_url,
+                                             headers={"User-Agent": "NEXUS-OpsAI/2.2"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    text = r.read(8_000_000).decode("utf-8", errors="replace")
+            except Exception:
+                text = body.log_sample_text or ""
+        entries = log_engine.parse_uploaded(text)
+        for e in entries:
+            if e["service"] == "uploaded":
+                e["service"] = body.services[0]
+        if entries:
+            sid = db.create_source(f"{body.name} onboarding logs", "onboarding",
+                                   {"url": body.log_sample_url, "locations": body.log_locations})
+            db.insert_logs(entries, sid)
+            ingested = len(entries)
+
+    db.log_audit(user["email"], "application_onboarded", body.name, {
+        "tenant": body.tenant, "services": body.services,
+        "patterns": len(body.patterns), "sops": len(body.sops),
+        "databases": len(conn_ids), "log_lines": ingested,
+    })
+    db.add_notification(body.tenant, "info", f"Application onboarded: {body.name}",
+                        f"{len(body.services)} service(s), {len(body.patterns)} watch pattern(s), "
+                        f"{len(body.sops)} SOP(s), {len(conn_ids)} database(s), "
+                        f"{ingested} log lines ingested.")
+    return {"ok": True, "application_id": app_id,
+            "summary": {"services": body.services, "patterns": len(body.patterns),
+                        "sops": len(body.sops), "databases": len(conn_ids),
+                        "log_lines_ingested": ingested}}
+
+
+@app.get("/api/admin/applications/{app_id}/detail")
+def application_detail(app_id: int):
+    apps = [a for a in db.list_applications() if a["id"] == app_id]
+    if not apps:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    a = apps[0]
+    a["patterns"] = db.list_patterns(app_id)
+    a["sops"] = db.list_sops(app_id)
+    return a
 
 
 @app.get("/api/knowledge")

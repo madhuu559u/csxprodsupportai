@@ -14,6 +14,7 @@ _MASKS = [
     (re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}\b"), "<UUID>"),
     (re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"), "<IP>"),
     (re.compile(r"\b(ORD|TX|C)[-]?\d+\b"), r"<\1_ID>"),
+    (re.compile(r"\b[A-Z]{2,6}-?\d{4,}\b"), "<ID>"),
     (re.compile(r"\b\d+(\.\d+)?(ms|s|%)\b"), "<NUM>\\2"),
     (re.compile(r"\b\d+(\.\d+)?\b"), "<NUM>"),
 ]
