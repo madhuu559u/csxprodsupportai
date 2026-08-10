@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>NEXUS OpsAI — Operations Console</title>
+<style>
+:root{
+  --bg:#07111f; --page:#060e19; --panel:#0b1929; --panel2:#10243a; --line:#203c5a;
+  --text:#e9f1fb; --text2:#c3cede; --muted:#8b9bb0; --grid:#16283d; --baseline:#2a4560;
+  --accent:#67e8f9; --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#06101d,#091728 55%,#07111f);color:var(--text);
+  font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;padding:22px 14px;background:rgba(5,13,24,.96);
+  border-right:1px solid var(--line);overflow:auto}
+.brand{font-weight:800;font-size:17px}.brand span{color:var(--accent)}
+.tag{margin:6px 0 20px;color:var(--muted);font-size:11px}
+.nav button{display:block;width:100%;text-align:left;padding:9px 11px;margin:3px 0;border-radius:9px;
+  color:#b8c7d9;background:none;border:none;font:inherit;cursor:pointer}
+.nav button:hover{background:#10233a;color:#fff}
+.nav button.active{background:#143150;color:#fff;border:1px solid #3d6c95}
+.aimode{margin-top:22px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--text2)}
+.aimode b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.main{padding:20px 28px 60px;max-width:1500px}
+h1{font-size:22px;margin:4px 0 2px}
+.sub{color:var(--muted);margin:0 0 18px;font-size:13px}
+h2{font-size:16px;margin:22px 0 10px}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card{background:linear-gradient(180deg,rgba(17,36,59,.9),rgba(11,26,43,.9));border:1px solid var(--line);
+  border-radius:14px;padding:14px 16px}
+.kpi b{font-size:26px;display:block;font-weight:700}
+.kpi span{color:var(--muted);font-size:12px}
+.badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid var(--line)}
+.badge.sev1{background:rgba(208,59,59,.16);color:#ff9d9d;border-color:#7c2d2d}
+.badge.sev2{background:rgba(236,131,90,.14);color:#ffc0a3;border-color:#8a4a30}
+.badge.sev3{background:rgba(250,178,25,.12);color:#ffd97a;border-color:#8a6a1d}
+.badge.tier2{color:#ffd97a}.badge.tier3{color:#8fe0a0}.badge.tier4{color:#ff9d9d}
+.badge.ok{color:#8fe0a0}.badge.off{color:#ffd97a}
+.health{font-size:12px}
+.health .dot{width:9px;height:9px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:8px 9px;border-bottom:1px solid #17304a;vertical-align:top}
+th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+td{color:var(--text2)}
+.mono{font-family:Consolas,ui-monospace,monospace;font-size:11.5px}
+button.act{background:#143150;border:1px solid #3d6c95;color:#e7f1fb;border-radius:8px;
+  padding:7px 13px;font:inherit;font-size:12.5px;cursor:pointer}
+button.act:hover{background:#1b4066}
+button.act.primary{background:#1c5cab;border-color:#3987e5}
+button.act.primary:hover{background:#256abf}
+button.act:disabled{opacity:.5;cursor:default}
+textarea,input[type=text],input[type=number]{width:100%;background:#0a1626;border:1px solid var(--line);
+  border-radius:9px;color:var(--text);padding:9px 11px;font:inherit}
+textarea{min-height:110px;font-family:Consolas,monospace;font-size:12px}
+.md{font-size:13.5px;line-height:1.65;color:var(--text2)}
+.md h1,.md h2,.md h3{color:var(--text);margin:14px 0 6px;font-size:15px}
+.md h1{font-size:17px}
+.md code{background:#0a1626;border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+  font-family:Consolas,monospace;font-size:11.5px;color:#a8d8ef}
+.md ul{margin:6px 0;padding-left:20px}.md li{margin:3px 0}
+.md strong{color:var(--text)}
+.chartbox{position:relative}
+.chartbox h3{margin:0 0 2px;font-size:13px;color:var(--text)}
+.chartbox .cur{font-size:20px;font-weight:700}
+.chartbox .unit{color:var(--muted);font-size:11px;font-weight:400}
+.tooltip{position:absolute;pointer-events:none;background:#0a1626;border:1px solid #3d6c95;border-radius:8px;
+  padding:6px 9px;font-size:11.5px;color:var(--text2);display:none;z-index:30;white-space:nowrap}
+.chat{display:flex;flex-direction:column;height:520px}
+.chatlog{flex:1;overflow:auto;padding:6px 2px}
+.msg{max-width:82%;margin:6px 0;padding:9px 13px;border-radius:12px;font-size:13px}
+.msg.user{margin-left:auto;background:#1c5cab;color:#fff}
+.msg.ai{background:var(--panel2);border:1px solid var(--line)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.chip{font-size:11.5px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:#a9bccf;
+  background:none;cursor:pointer}
+.chip:hover{background:#10233a;color:#fff}
+.modal-bg{position:fixed;inset:0;background:rgba(3,8,15,.7);display:none;z-index:90;align-items:center;justify-content:center}
+.modal{background:var(--panel);border:1px solid #3d6c95;border-radius:14px;padding:20px;width:430px}
+.steps li{margin:6px 0;color:var(--text2)}
+.evd{border-left:3px solid var(--line);padding:4px 10px;margin:6px 0;font-size:12.5px;color:var(--text2)}
+.evd.metric{border-color:var(--crit)}.evd.log{border-color:var(--s2)}.evd.prediction{border-color:var(--warn)}
+.flowline{color:var(--muted);font-size:12px;margin:4px 0}
+.section{display:none}.section.active{display:block}
+.spin{color:var(--muted);font-size:12.5px}
+@media(max-width:1100px){.g4,.g3{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){.app{grid-template-columns:1fr}.sidebar{position:static;height:auto}.g4,.g3,.g2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand">NEXUS <span>OpsAI</span></div>
+  <div class="tag">AI-Native Production Support</div>
+  <nav class="nav" id="nav">
+    <button data-s="overview" class="active">Executive Overview</button>
+    <button data-s="incidents">Incident Command</button>
+    <button data-s="logs">AI Log Analyzer</button>
+    <button data-s="predict">Predictive Alerts</button>
+    <button data-s="runbooks">Runbooks &amp; Self-Healing</button>
+    <button data-s="copilot">L1 Copilot</button>
+    <button data-s="config">Configuration</button>
+  </nav>
+  <div class="aimode">
+    <b>AI Engine</b>
+    <span id="aiMode"><span class="dot" style="background:var(--warn)"></span>starting…</span>
+  </div>
+  <div class="aimode">
+    <b>Demo control</b>
+    <button class="act" style="width:100%" onclick="resetDemo()">Reset scenario</button>
+  </div>
+</aside>
+
+<main class="main">
+
+<!-- ============ OVERVIEW ============ -->
+<section id="sec-overview" class="section active">
+  <h1>Executive Overview</h1>
+  <p class="sub">Detect &middot; Explain &middot; Predict &middot; Resolve &middot; Learn — one intelligence layer over your existing observability stack.</p>
+  <div class="grid g4" id="kpiRow"></div>
+  <h2>Service Health</h2>
+  <div class="grid g4" id="svcRow"></div>
+  <h2>Key Telemetry (last 60 min)</h2>
+  <div class="grid g2" id="ovCharts"></div>
+</section>
+
+<!-- ============ INCIDENTS ============ -->
+<section id="sec-incidents" class="section">
+  <h1>Incident Command</h1>
+  <p class="sub">Signals across metrics, logs and forecasts are correlated automatically into incidents with evidence, blast radius and change suspects.</p>
+  <div id="incList"></div>
+</section>
+
+<!-- ============ LOGS ============ -->
+<section id="sec-logs" class="section">
+  <h1>AI Log Analyzer</h1>
+  <p class="sub">Raw lines are templated into patterns; anomalous clusters surface instantly and Claude explains them in seconds.</p>
+  <div class="card">
+    <button class="act primary" onclick="analyzeLogs()">⚡ AI: Summarize error situation</button>
+    <span class="spin" id="logSpin"></span>
+    <div class="md" id="logSummary" style="margin-top:10px"></div>
+  </div>
+  <h2>Error Pattern Clusters</h2>
+  <div class="card" style="overflow-x:auto"><table id="clusterTable">
+    <thead><tr><th>Service</th><th>Level</th><th>Pattern (auto-templated)</th><th>Count</th><th>Status</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <h2>Bring your own logs</h2>
+  <div class="card">
+    <p class="sub" style="margin-top:0">Paste raw application logs (any format — Splunk / ELK export, kubectl logs, plain files). The engine parses, templates and clusters them so your company's real patterns can be mined the same way.</p>
+    <textarea id="logPaste" placeholder="2026-08-09 14:21:08 ERROR [order-svc] SQLException: timeout acquiring connection ..."></textarea>
+    <div style="margin-top:8px"><button class="act" onclick="uploadLogs()">Parse &amp; cluster</button>
+    <span class="spin" id="upSpin"></span></div>
+    <div id="upResult" style="margin-top:10px"></div>
+  </div>
+</section>
+
+<!-- ============ PREDICTIONS ============ -->
+<section id="sec-predict" class="section">
+  <h1>Predictive Alerts</h1>
+  <p class="sub">Trend models forecast pool exhaustion, JVM pressure, latency and queue backlogs — with time-to-breach and confidence, before customers feel it.</p>
+  <h2>Active breaches (now)</h2>
+  <div class="grid g3" id="breachRow"></div>
+  <h2>Forecasts (next 60 min)</h2>
+  <div class="grid g3" id="predRow"></div>
+</section>
+
+<!-- ============ RUNBOOKS ============ -->
+<section id="sec-runbooks" class="section">
+  <h1>Automated Runbooks &amp; Self-Healing</h1>
+  <p class="sub">AI proposes &middot; policy decides &middot; automation executes &middot; humans keep authority on risk. Every run is verified against telemetry and audited.</p>
+  <div class="grid g3" id="rbRow"></div>
+  <h2>Audit Trail</h2>
+  <div class="card" style="overflow-x:auto"><table id="auditTable">
+    <thead><tr><th>Time</th><th>Runbook</th><th>Tier</th><th>Outcome</th><th>Approved by</th><th>Verification</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</section>
+
+<!-- ============ COPILOT ============ -->
+<section id="sec-copilot" class="section">
+  <h1>L1 Support Copilot</h1>
+  <p class="sub">Grounded in live operational context — incidents, changes, ownership, runbooks and prior resolutions. Not a generic FAQ bot.</p>
+  <div class="card chat">
+    <div class="chatlog" id="chatLog">
+      <div class="msg ai">Hi — I'm your support copilot. I can see the live incident state, recent changes, service ownership and the runbook catalog. What do you need?</div>
+    </div>
+    <div class="chips">
+      <button class="chip" onclick="askChip('What is the current top incident and who owns it?')">Top incident?</button>
+      <button class="chip" onclick="askChip('What changed before this incident started?')">What changed?</button>
+      <button class="chip" onclick="askChip('Which runbook should I run to fix it?')">Which runbook?</button>
+      <button class="chip" onclick="askChip('Has something like this happened before?')">Happened before?</button>
+    </div>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="chatInput" placeholder="Ask about incidents, changes, ownership, runbooks…"
+        onkeydown="if(event.key==='Enter')sendChat()"/>
+      <button class="act primary" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CONFIG ============ -->
+<section id="sec-config" class="section">
+  <h1>Configuration Center</h1>
+  <p class="sub">Config-first: thresholds, prediction sensitivity, models and runbooks are data, not code. Tune them to your company's baselines.</p>
+  <div class="card">
+    <h2 style="margin-top:0">Alert thresholds</h2>
+    <table id="thTable"><thead><tr><th>Metric</th><th>Warn</th><th>Critical</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h2 style="margin-top:0">AI engine</h2>
+    <div id="cfgAi" class="md"></div>
+  </div>
+</section>
+
+</main>
+</div>
+
+<!-- approval modal -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h2 style="margin-top:0">Human approval required</h2>
+    <p class="sub" id="modalText"></p>
+    <input type="text" id="approverName" placeholder="Your name (recorded in audit trail)"/>
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="act" onclick="closeModal()">Cancel</button>
+      <button class="act primary" onclick="confirmApproval()">Approve &amp; execute</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const api=async(path,opts)=>{const r=await fetch(path,opts);return r.json()};
+const post=(path,body)=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmtAgo=ts=>{const m=Math.round((Date.now()/1000-ts)/60);return m<1?'just now':m<60?m+'m ago':Math.round(m/60)+'h ago'};
+
+// tiny markdown renderer for AI output
+function md(t){
+  let h=esc(t);
+  h=h.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>');
+  h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
+  h=h.replace(/^\s*[-*] (.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g,'<ul>$1</ul>');
+  return h.split(/\n{2,}/).map(p=>/^<(h\d|ul)/.test(p.trim())?p:'<p>'+p.replace(/\n/g,'<br>')+'</p>').join('');
+}
+
+// ------- navigation -------
+$('#nav').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  $('#sec-'+b.dataset.s).classList.add('active');
+  refreshSection(b.dataset.s);
+});
+
+// ------- charts (single-series line + threshold, crosshair tooltip) -------
+const FRIENDLY={db_pool_utilization:['DB pool utilization','%'],heap_used_pct:['JVM heap used','%'],
+  latency_p99_ms:['Latency p99','ms'],queue_depth:['Queue depth','msgs'],error_rate_pct:['Error rate','%']};
+
+function chartCard(service,metric,series,th){
+  const [name,unit]=FRIENDLY[metric]||[metric,''];
+  const cur=series[series.length-1][1];
+  const crit=th&&cur>=th.critical, warn=th&&cur>=th.warn;
+  const col=crit?'var(--crit)':warn?'var(--warn)':'var(--s1)';
+  const id='c'+Math.random().toString(36).slice(2,9);
+  return `<div class="card chartbox">
+    <h3>${service} — ${name}</h3>
+    <div class="cur" style="color:${col}">${cur.toLocaleString()}<span class="unit"> ${unit}</span></div>
+    <svg id="${id}" data-series='${JSON.stringify(series.map(p=>p[1]))}' data-th='${th?th.critical:''}'
+      data-unit="${unit}" width="100%" height="120" viewBox="0 0 460 120" preserveAspectRatio="none"></svg>
+    <div class="tooltip"></div>
+  </div>`;
+}
+
+function drawCharts(){
+  document.querySelectorAll('svg[data-series]').forEach(svg=>{
+    const vals=JSON.parse(svg.dataset.series), th=svg.dataset.th?+svg.dataset.th:null;
+    const W=460,H=120,P=6;
+    let mn=Math.min(...vals), mx=Math.max(...vals);
+    if(th!=null){mn=Math.min(mn,th);mx=Math.max(mx,th);}
+    const span=(mx-mn)||1; mn-=span*.08; mx+=span*.08;
+    const X=i=>P+i*(W-2*P)/(vals.length-1), Y=v=>H-P-(v-mn)*(H-2*P)/(mx-mn);
+    let g='';
+    for(let i=1;i<4;i++){const y=P+i*(H-2*P)/4;g+=`<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;}
+    const pts=vals.map((v,i)=>`${X(i)},${Y(v)}`).join(' ');
+    const area=`${P},${H-P} ${pts} ${W-P},${H-P}`;
+    const last=vals[vals.length-1];
+    const lineCol=(th!=null&&last>=th)?'var(--crit)':'var(--s1)';
+    let thLine='';
+    if(th!=null) thLine=`<line x1="${P}" y1="${Y(th)}" x2="${W-P}" y2="${Y(th)}" stroke="var(--crit)" stroke-width="1.5" stroke-dasharray="5 4" opacity=".65"/>`;
+    svg.innerHTML=g+`<polygon points="${area}" fill="${lineCol}" opacity="0.12"/>`+thLine+
+      `<polyline points="${pts}" fill="none" stroke="${lineCol}" stroke-width="2" stroke-linejoin="round"/>`+
+      `<circle cx="${X(vals.length-1)}" cy="${Y(last)}" r="3.5" fill="${lineCol}" stroke="var(--panel)" stroke-width="2"/>`+
+      `<line class="xh" x1="0" y1="${P}" x2="0" y2="${H-P}" stroke="#5a7da0" stroke-width="1" opacity="0" />`;
+    // crosshair + tooltip
+    const box=svg.closest('.chartbox'), tip=box.querySelector('.tooltip');
+    const xh=svg.querySelector('.xh');
+    svg.onmousemove=e=>{
+      const r=svg.getBoundingClientRect();
+      const i=Math.max(0,Math.min(vals.length-1,Math.round((e.clientX-r.left)/r.width*(vals.length-1))));
+      const px=X(i)/W*r.width;
+      xh.setAttribute('x1',X(i));xh.setAttribute('x2',X(i));xh.setAttribute('opacity','.5');xh.setAttribute('stroke','#5a7da0');
+      tip.style.display='block';
+      tip.style.left=Math.min(px+10,r.width-120)+'px'; tip.style.top='34px';
+      tip.textContent=`${vals.length-1-i} min ago · ${vals[i].toLocaleString()} ${svg.dataset.unit}`;
+    };
+    svg.onmouseleave=()=>{tip.style.display='none';xh.setAttribute('opacity','0');};
+  });
+}
+
+// ------- overview -------
+async function loadOverview(){
+  const o=await api('/api/overview');
+  $('#aiMode').innerHTML = o.ai_mode==='claude'
+    ? `<span class="dot" style="background:var(--good)"></span>Claude live <span class="mono" style="color:var(--muted)">(${o.ai_model})</span>`
+    : `<span class="dot" style="background:var(--warn)"></span>Offline deterministic mode`;
+  const k=o.kpis;
+  $('#kpiRow').innerHTML=[
+    ['Active incidents',k.active_incidents,k.active_incidents?'var(--crit)':'var(--good)'],
+    ['Predicted incidents',k.predicted_incidents,k.predicted_incidents?'var(--warn)':'var(--good)'],
+    ['Anomalous log patterns',k.error_clusters,'var(--s2)'],
+    ['Log lines analyzed',k.log_lines_analyzed.toLocaleString(),'var(--s1)'],
+  ].map(([l,v,c])=>`<div class="card kpi"><b style="color:${c}">${v}</b><span>${l}</span></div>`).join('');
+  const hcol={healthy:'var(--good)',degraded:'var(--serious)','at-risk':'var(--warn)',critical:'var(--crit)'};
+  $('#svcRow').innerHTML=o.services.map(s=>`<div class="card">
+    <div class="health"><span class="dot" style="background:${hcol[s.health]}"></span><b>${s.name}</b></div>
+    <div style="color:var(--muted);font-size:12px;margin-top:6px">${s.owner}<br>criticality: ${s.criticality}<br>
+    status: <b style="color:${hcol[s.health]}">${s.health}</b></div></div>`).join('');
+  const m=await api('/api/metrics');
+  const picks=[['checkout-api','db_pool_utilization'],['checkout-api','latency_p99_ms'],
+               ['payment-api','heap_used_pct'],['fulfillment-worker','queue_depth']];
+  $('#ovCharts').innerHTML=picks.map(([s,mt])=>chartCard(s,mt,m.metrics[s][mt],m.thresholds[mt])).join('');
+  drawCharts();
+}
+
+// ------- incidents -------
+async function loadIncidents(){
+  const d=await api('/api/incidents');
+  if(!d.incidents.length){$('#incList').innerHTML='<div class="card">No active or predicted incidents. 🎉</div>';return;}
+  $('#incList').innerHTML=d.incidents.map(i=>`
+  <div class="card" style="margin-bottom:14px" id="inc-${i.id}">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="badge sev${i.severity.slice(3)}">${i.severity}</span>
+      <b>${i.id}</b> <span style="color:var(--text2)">${esc(i.title)}</span>
+      <span class="badge">${i.status}</span>
+      <span style="margin-left:auto;color:var(--muted);font-size:12px">owner: ${i.owner}</span>
+    </div>
+    <div class="flowline">signals: ${i.signals.map(s=>`<code class="mono">${s}</code>`).join(' ')}</div>
+    <div class="flowline">blast radius — upstream: ${i.blast_radius.upstream.join(', ')||'—'} · downstream: ${i.blast_radius.downstream.join(', ')||'—'}</div>
+    ${i.changes.length?`<div class="flowline">⚠ change suspect: ${esc(i.changes[0].detail)} <i>(${fmtAgo(i.changes[0].ts)})</i></div>`:''}
+    <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent);font-size:13px">Evidence (${i.evidence.length})</summary>
+      ${i.evidence.map(e=>`<div class="evd ${e.type}">[${e.type}] ${esc(e.detail)}</div>`).join('')}
+    </details>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="act primary" onclick="aiBrief('${i.id}')">⚡ AI incident brief</button>
+      <button class="act" onclick="aiRca('${i.id}')">📄 Generate RCA draft</button>
+      <button class="act" onclick="showRunbooksFor('${i.id}')">🛠 Recommended runbooks</button>
+    </div>
+    <div class="md" id="brief-${i.id}" style="margin-top:10px"></div>
+    <div id="rbs-${i.id}" style="margin-top:6px"></div>
+    <div class="md" id="rca-${i.id}" style="margin-top:10px"></div>
+  </div>`).join('');
+}
+async function aiBrief(id){
+  const el=$('#brief-'+id); el.innerHTML='<span class="spin">Claude is analyzing evidence…</span>';
+  const r=await post(`/api/incidents/${id}/brief`);
+  el.innerHTML=md(r.brief)+modeTag(r.mode);
+}
+async function aiRca(id){
+  const el=$('#rca-'+id); el.innerHTML='<span class="spin">Generating evidence-bounded RCA…</span>';
+  const r=await post(`/api/incidents/${id}/rca`);
+  el.innerHTML='<div class="card" style="background:#0a1626">'+md(r.rca)+modeTag(r.mode)+'</div>';
+}
+async function showRunbooksFor(id){
+  const inc=await api('/api/incidents/'+id);
+  const el=$('#rbs-'+id);
+  if(!inc.recommended_runbooks.length){el.innerHTML='<div class="flowline">No matching runbook — escalate to L2.</div>';return;}
+  el.innerHTML=inc.recommended_runbooks.map(r=>`
+    <div class="evd" style="border-color:var(--s3)">
+      <b>${r.name}</b> <span class="badge tier${r.tier}">tier ${r.tier}</span>
+      <span class="mono" style="color:var(--muted)">${r.id}</span>
+      <button class="act" style="margin-left:8px" onclick="execRunbook('${r.id}',${r.tier})">Execute</button>
+    </div>`).join('');
+}
+const modeTag=m=>`<div style="margin-top:6px"><span class="badge ${m==='claude'?'ok':'off'}">${m==='claude'?'✦ generated by Claude':'offline deterministic engine'}</span></div>`;
+
+// ------- logs -------
+async function loadLogs(){
+  const d=await api('/api/logs/clusters');
+  $('#clusterTable tbody').innerHTML=d.clusters.map(c=>`<tr>
+    <td>${c.service}</td><td>${c.level}</td>
+    <td class="mono">${esc(c.template.slice(0,120))}</td>
+    <td><b>${c.count}</b></td>
+    <td>${c.anomalous?'<span class="badge sev2">anomalous</span>':'<span class="badge">baseline</span>'}</td></tr>`).join('');
+}
+async function analyzeLogs(){
+  $('#logSpin').textContent='Reading '+' clusters…'; $('#logSummary').innerHTML='';
+  const r=await post('/api/logs/analyze');
+  $('#logSpin').textContent='';
+  $('#logSummary').innerHTML=md(r.summary)+modeTag(r.mode);
+}
+async function uploadLogs(){
+  const text=$('#logPaste').value.trim();
+  if(!text){$('#upResult').innerHTML='<span class="spin">Paste some log lines first.</span>';return;}
+  $('#upSpin').textContent='Parsing…';
+  const r=await post('/api/logs/upload',{text});
+  $('#upSpin').textContent='';
+  $('#upResult').innerHTML=`<div class="flowline">Parsed <b>${r.parsed}</b> lines into <b>${r.clusters.length}</b> patterns:</div>`+
+    '<table><thead><tr><th>Level</th><th>Pattern</th><th>Count</th></tr></thead><tbody>'+
+    r.clusters.map(c=>`<tr><td>${c.level}</td><td class="mono">${esc(c.template.slice(0,110))}</td><td>${c.count}</td></tr>`).join('')+
+    '</tbody></table>';
+  loadLogs();
+}
+
+// ------- predictions -------
+async function loadPredict(){
+  const d=await api('/api/predictions');
+  $('#breachRow').innerHTML=d.breaches.length?d.breaches.map(b=>`<div class="card">
+    <span class="badge ${b.level==='critical'?'sev1':'sev3'}">${b.level}</span>
+    <h3 style="margin:8px 0 4px;font-size:14px">${b.title}</h3>
+    <div style="color:var(--muted);font-size:12px">${b.service}</div>
+    <div class="cur" style="font-size:22px;font-weight:700;color:${b.level==='critical'?'var(--crit)':'var(--warn)'}">${b.value.toLocaleString()}</div>
+    <div style="color:var(--muted);font-size:12px">threshold ${b.threshold}</div></div>`).join('')
+    :'<div class="card">No live threshold breaches.</div>';
+  $('#predRow').innerHTML=d.predictions.length?d.predictions.map(p=>`<div class="card">
+    <span class="badge sev3">forecast</span>
+    <h3 style="margin:8px 0 4px;font-size:14px">${p.title}</h3>
+    <div style="color:var(--muted);font-size:12px">${p.service} · ${p.metric}</div>
+    <div style="font-size:22px;font-weight:700;color:var(--warn)">~${p.eta_minutes} min</div>
+    <div style="color:var(--muted);font-size:12px">to critical (${p.threshold}${p.unit}) — now ${p.current}${p.unit}</div>
+    <div style="color:var(--muted);font-size:12px">confidence ${(p.confidence*100).toFixed(0)}% · slope ${p.slope_per_min}/min</div>
+  </div>`).join('')
+    :'<div class="card">No forecasted breaches inside the horizon.</div>';
+}
+
+// ------- runbooks -------
+let pendingRb=null;
+async function loadRunbooks(){
+  const d=await api('/api/runbooks');
+  $('#rbRow').innerHTML=d.runbooks.map(r=>`<div class="card">
+    <b>${r.name}</b> <span class="badge tier${r.tier}">tier ${r.tier}</span>
+    <div class="mono" style="color:var(--muted);margin:4px 0">${r.id}</div>
+    <div style="color:var(--muted);font-size:12px">match: ${r.match.service} · ${r.match.signals.join(', ')}</div>
+    <ul class="steps" style="font-size:12.5px;padding-left:18px;margin:8px 0">
+      ${r.steps.map(s=>`<li><code class="mono">${s.action}</code> — ${esc(s.detail)}</li>`).join('')}
+    </ul>
+    <div style="color:var(--muted);font-size:12px">verify: ${r.verify?esc(r.verify.expected):'—'}</div>
+    <div style="margin-top:8px">
+      ${r.tier>=4?'<span class="badge tier4">restricted — change mgmt only</span>'
+        :`<button class="act ${r.tier===3?'primary':''}" onclick="execRunbook('${r.id}',${r.tier})">${r.tier===2?'Request execution (approval)':'Auto-heal now'}</button>`}
+      <span class="spin" id="rbspin-${r.id}"></span>
+    </div>
+    <div id="rbout-${r.id}" style="margin-top:8px"></div>
+  </div>`).join('');
+  $('#auditTable tbody').innerHTML=d.audit.map(a=>`<tr>
+    <td>${fmtAgo(a.ts)}</td><td class="mono">${a.runbook}</td><td>${a.tier}</td>
+    <td>${a.outcome==='executed'?'<span class="badge ok">executed</span>':'<span class="badge sev1">'+a.outcome+'</span>'}</td>
+    <td>${a.approved_by||'—'}</td>
+    <td>${a.verification?a.verification.status:'—'}</td></tr>`).join('')||'<tr><td colspan="6" style="color:var(--muted)">No automation runs yet.</td></tr>';
+}
+async function execRunbook(id,tier){
+  if(tier===2){pendingRb=id;$('#modalText').textContent=`Runbook "${id}" is tier 2 — a state-changing action that requires human sign-off. Your approval is recorded in the immutable audit trail.`;$('#modalBg').style.display='flex';return;}
+  await doExec(id,null);
+}
+async function doExec(id,approver){
+  const spin=$('#rbspin-'+id); if(spin)spin.textContent='Executing…';
+  const r=await post(`/api/runbooks/${id}/execute`,{approved_by:approver});
+  if(spin)spin.textContent='';
+  const out=$('#rbout-'+id);
+  if(r.ok){
+    if(out)out.innerHTML=`<div class="evd" style="border-color:var(--good)">
+      ✅ Executed (id ${r.execution_id}) — steps: ${r.steps.map(s=>s.action).join(' → ')}<br>
+      Verification: <b style="color:var(--good)">${r.verification.status}</b> — ${esc(r.verification.detail)}</div>`;
+  }else{
+    if(out)out.innerHTML=`<div class="evd" style="border-color:var(--crit)">⛔ ${esc(r.error||'failed')}</div>`;
+  }
+  loadRunbooks(); loadOverview();
+}
+function closeModal(){$('#modalBg').style.display='none';pendingRb=null;}
+async function confirmApproval(){
+  const name=$('#approverName').value.trim()||'demo-operator';
+  const id=pendingRb; closeModal();
+  await doExec(id,name);
+}
+
+// ------- copilot -------
+async function sendChat(){
+  const q=$('#chatInput').value.trim(); if(!q)return;
+  $('#chatInput').value='';
+  const log=$('#chatLog');
+  log.insertAdjacentHTML('beforeend',`<div class="msg user">${esc(q)}</div>`);
+  log.insertAdjacentHTML('beforeend',`<div class="msg ai" id="pendingAi"><span class="spin">thinking…</span></div>`);
+  log.scrollTop=log.scrollHeight;
+  const r=await post('/api/copilot',{question:q});
+  $('#pendingAi').outerHTML=`<div class="msg ai">${md(r.answer)}${modeTag(r.mode)}</div>`;
+  log.scrollTop=log.scrollHeight;
+}
+function askChip(q){$('#chatInput').value=q;sendChat();}
+
+// ------- config -------
+async function loadConfig(){
+  const c=await api('/api/config');
+  $('#thTable tbody').innerHTML=Object.entries(c.thresholds).map(([m,t])=>`<tr>
+    <td class="mono">${m}</td>
+    <td><input type="number" id="w-${m}" value="${t.warn}" style="width:90px"></td>
+    <td><input type="number" id="c-${m}" value="${t.critical}" style="width:90px"></td>
+    <td><button class="act" onclick="saveTh('${m}')">Save</button></td></tr>`).join('');
+  $('#cfgAi').innerHTML=`<p>Model: <code>${c.ai.model}</code> · max tokens: ${c.ai.max_tokens}</p>
+    <p>Set <code>ANTHROPIC_API_KEY</code> before launch to enable live Claude analysis; without it, every AI feature runs on the deterministic offline engine so the console remains fully functional.</p>`;
+}
+async function saveTh(m){
+  await post('/api/config/threshold',{metric:m,warn:+$('#w-'+m).value,critical:+$('#c-'+m).value});
+  loadOverview();
+}
+
+// ------- misc -------
+async function resetDemo(){await post('/api/demo/reset');refreshSection(current());loadOverview();}
+const current=()=>document.querySelector('.nav button.active').dataset.s;
+function refreshSection(s){
+  ({overview:loadOverview,incidents:loadIncidents,logs:loadLogs,predict:loadPredict,
+    runbooks:loadRunbooks,copilot:()=>{},config:loadConfig})[s]();
+}
+loadOverview();
+setInterval(()=>{if(current()==='overview')loadOverview();},30000);
+</script>
+</body>
+</html>

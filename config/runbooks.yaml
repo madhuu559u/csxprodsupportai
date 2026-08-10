@@ -1,0 +1,114 @@
+# Automated runbook catalog. Tiers:
+#   0 = observe (read-only)   1 = recommend only   2 = human approval required
+#   3 = auto-heal (pre-approved, verified, auto-rollback)   4 = restricted
+runbooks:
+  - id: checkout-db-pool-pressure
+    name: "Relieve DB connection pool pressure"
+    tier: 2
+    match:
+      service: checkout-api
+      signals: [db_pool_exhaustion, latency_spike]
+    steps:
+      - { action: collect_diagnostics, detail: "Capture pool stats, active queries, thread dump" }
+      - { action: kubernetes.scale, detail: "Scale deployment checkout-api replicas +2" }
+      - { action: config.tune, detail: "Temporarily raise pool max 50 -> 70 on new pods" }
+    verify:
+      metric: db_pool_utilization
+      expected: "decrease >= 25% within 5m"
+    rollback_on_failure: true
+
+  - id: jvm-heap-relief
+    name: "JVM heap pressure mitigation"
+    tier: 2
+    match:
+      service: payment-api
+      signals: [jvm_memory_leak, heap_pressure]
+    steps:
+      - { action: collect_diagnostics, detail: "Trigger heap dump on worst pod, upload to object storage" }
+      - { action: kubernetes.rolling_restart, detail: "Rolling restart payment-api (1 pod at a time, drain first)" }
+    verify:
+      metric: heap_used_pct
+      expected: "decrease >= 20% within 10m"
+    rollback_on_failure: false
+
+  - id: queue-backlog-scale-consumers
+    name: "Scale consumers to drain queue backlog"
+    tier: 3
+    match:
+      service: fulfillment-worker
+      signals: [queue_backlog]
+    steps:
+      - { action: collect_diagnostics, detail: "Check consumer lag per partition" }
+      - { action: kubernetes.scale, detail: "Scale fulfillment-worker replicas +3" }
+    verify:
+      metric: queue_depth
+      expected: "decrease >= 40% within 10m"
+    rollback_on_failure: true
+
+  - id: clear-edge-cache
+    name: "Clear edge/API cache"
+    tier: 3
+    match:
+      service: web-gateway
+      signals: [stale_cache, error_spike]
+    steps:
+      - { action: cache.flush, detail: "Invalidate gateway response cache keys" }
+    verify:
+      metric: error_rate_pct
+      expected: "decrease within 5m"
+    rollback_on_failure: false
+
+  - id: reset-stuck-jobs
+    name: "Reset stuck batch jobs"
+    tier: 3
+    match:
+      service: fulfillment-worker
+      signals: [stuck_jobs]
+    steps:
+      - { action: jobs.requeue, detail: "Requeue jobs stuck > 15m in RUNNING state" }
+    verify:
+      metric: queue_depth
+      expected: "stuck job count = 0 within 5m"
+    rollback_on_failure: false
+
+  - id: trading-feed-reconnect
+    name: "Reconnect market-data feed to primary"
+    tier: 2
+    match:
+      service: trading-api
+      signals: [latency_spike, error_spike]
+    steps:
+      - { action: collect_diagnostics, detail: "Capture feed session stats + venue heartbeat log" }
+      - { action: feed.reconnect, detail: "Drop dr-site session, re-establish primary feed handler" }
+      - { action: cache.warm, detail: "Re-warm last-tick cache before enabling order flow" }
+    verify:
+      metric: latency_p99_ms
+      expected: "return below 200ms within 5m"
+    rollback_on_failure: true
+
+  - id: notification-stuck-jobs
+    name: "Requeue stuck notification jobs"
+    tier: 3
+    match:
+      service: notification-svc
+      signals: [stuck_jobs, queue_backlog]
+    steps:
+      - { action: collect_diagnostics, detail: "List jobs in RUNNING > 15m with channel breakdown" }
+      - { action: jobs.requeue, detail: "Reset stuck jobs to PENDING and bump consumer group" }
+    verify:
+      metric: queue_depth
+      expected: "stuck job count = 0 within 5m"
+    rollback_on_failure: false
+
+  - id: rollback-checkout-release
+    name: "Roll back checkout-api release v6.14.2"
+    tier: 4
+    match:
+      service: checkout-api
+      signals: [bad_deployment]
+    steps:
+      - { action: cicd.rollback, detail: "Redeploy previous checkout-api v6.14.1" }
+    verify:
+      metric: latency_p99_ms
+      expected: "return to baseline within 10m"
+    rollback_on_failure: false

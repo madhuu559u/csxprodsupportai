@@ -1,0 +1,28 @@
+# NEXUS OpsAI — platform configuration (config-first: everything material is tunable here)
+platform:
+  name: "NEXUS OpsAI"
+  environment: "demo"
+
+ai:
+  model: "claude-opus-5"          # Anthropic model used for all AI features
+  max_tokens: 2000
+  # If no ANTHROPIC_API_KEY (or ant auth profile) is available, the platform
+  # automatically runs in deterministic offline mode - every AI feature still works.
+
+thresholds:
+  db_pool_utilization: { warn: 80, critical: 92 }
+  heap_used_pct:       { warn: 80, critical: 90 }
+  latency_p99_ms:      { warn: 800, critical: 1500 }
+  queue_depth:         { warn: 6000, critical: 9000 }
+  error_rate_pct:      { warn: 2.0, critical: 5.0 }
+
+prediction:
+  lookback_points: 15        # points used for trend fit
+  horizon_minutes: 60        # how far ahead to forecast
+  min_confidence: 0.60       # R^2 below this -> prediction suppressed
+
+correlation:
+  window_minutes: 30         # signals within this window group into one incident
+
+log_analysis:
+  error_cluster_min_count: 3   # ERROR clusters below this are noise-suppressed
